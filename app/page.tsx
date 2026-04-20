@@ -120,9 +120,10 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-
-  // ---- NEW: Category filter state ----
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+
+  // ---- NEW: Search state ----
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Fetch cards from Supabase
   const fetchCards = useCallback(async () => {
@@ -155,25 +156,21 @@ export default function Home() {
     fetchCards();
   }, [fetchCards]);
 
-  // Real-time listener — re-fetches on any change to cards table
+  // Real-time listener
   useEffect(() => {
     const channel = supabase
       .channel('cards-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'cards' },
-        () => {
-          fetchCards();
-        }
+        () => { fetchCards(); }
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [fetchCards]);
 
-  // ---- NEW: Derive unique category names from fetched cards ----
+  // Derive unique categories from fetched cards
   const categories = Array.from(
     new Map(
       cards
@@ -182,11 +179,23 @@ export default function Home() {
     ).values()
   ).sort((a, b) => a.name.localeCompare(b.name));
 
-  // ---- NEW: Filter cards based on selected category ----
-  const filteredCards =
-    selectedCategory === 'All'
-      ? cards
-      : cards.filter((c) => c.categories?.name === selectedCategory);
+  // ---- NEW: Apply both search and category filters together ----
+  const filteredCards = cards.filter((card) => {
+    const matchesCategory =
+      selectedCategory === 'All' || card.categories?.name === selectedCategory;
+
+    const q = searchQuery.trim().toLowerCase();
+    const matchesSearch =
+      q === '' ||
+      card.name.toLowerCase().includes(q) ||
+      card.title.toLowerCase().includes(q) ||
+      card.company.toLowerCase().includes(q) ||
+      card.email.toLowerCase().includes(q);
+
+    return matchesCategory && matchesSearch;
+  });
+
+  const isFiltered = searchQuery.trim() !== '' || selectedCategory !== 'All';
 
   // ---- LOADING STATE ----
   if (loading) {
@@ -243,7 +252,30 @@ export default function Home() {
           </div>
         </header>
 
-        {/* ---- NEW: Category Filter Bar ---- */}
+        {/* ---- NEW: Search Box ---- */}
+        <div className="relative mb-4">
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">
+            🔍
+          </span>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by name, title, company, or email..."
+            className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
+
+        {/* Category Filter Bar */}
         <div className="flex flex-wrap gap-2 mb-8">
           <button
             onClick={() => setSelectedCategory('All')}
@@ -277,11 +309,23 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Empty state when filter returns nothing */}
+        {/* Empty State */}
         {filteredCards.length === 0 && (
           <div className="text-center py-20 text-gray-400">
-            <p className="text-4xl mb-3">🗂️</p>
-            <p className="font-medium">No cards in this category yet.</p>
+            <p className="text-4xl mb-3">{searchQuery ? '🔍' : '🗂️'}</p>
+            <p className="font-medium">
+              {searchQuery
+                ? `No results for "${searchQuery}"${selectedCategory !== 'All' ? ` in ${selectedCategory}` : ''}.`
+                : 'No cards in this category yet.'}
+            </p>
+            {isFiltered && (
+              <button
+                onClick={() => { setSearchQuery(''); setSelectedCategory('All'); }}
+                className="mt-4 px-4 py-1.5 text-sm text-blue-500 hover:underline"
+              >
+                Clear all filters
+              </button>
+            )}
           </div>
         )}
 
