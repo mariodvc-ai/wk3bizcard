@@ -121,6 +121,9 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+  // ---- NEW: Category filter state ----
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+
   // Fetch cards from Supabase
   const fetchCards = useCallback(async () => {
     const { data, error } = await supabase
@@ -170,6 +173,21 @@ export default function Home() {
     };
   }, [fetchCards]);
 
+  // ---- NEW: Derive unique category names from fetched cards ----
+  const categories = Array.from(
+    new Map(
+      cards
+        .filter((c) => c.categories)
+        .map((c) => [c.categories.id, c.categories])
+    ).values()
+  ).sort((a, b) => a.name.localeCompare(b.name));
+
+  // ---- NEW: Filter cards based on selected category ----
+  const filteredCards =
+    selectedCategory === 'All'
+      ? cards
+      : cards.filter((c) => c.categories?.name === selectedCategory);
+
   // ---- LOADING STATE ----
   if (loading) {
     return (
@@ -205,14 +223,17 @@ export default function Home() {
       <div className="max-w-6xl mx-auto px-6 py-10">
 
         {/* Header */}
-        <header className="mb-10">
+        <header className="mb-8">
           <h1 className="text-4xl font-extrabold text-gray-900 mb-2">
             Business Card Directory
           </h1>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <p className="text-gray-500 text-sm">
-              Showing <span className="font-semibold text-gray-700">{cards.length}</span> professionals
-              — sorted by last name, then first name
+              Showing{' '}
+              <span className="font-semibold text-gray-700">{filteredCards.length}</span>{' '}
+              of{' '}
+              <span className="font-semibold text-gray-700">{cards.length}</span>{' '}
+              professionals — sorted by last name, then first name
             </p>
             {lastUpdated && (
               <p className="text-gray-400 text-xs">
@@ -222,12 +243,47 @@ export default function Home() {
           </div>
         </header>
 
+        {/* ---- NEW: Category Filter Bar ---- */}
+        <div className="flex flex-wrap gap-2 mb-8">
+          <button
+            onClick={() => setSelectedCategory('All')}
+            className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 border ${
+              selectedCategory === 'All'
+                ? 'bg-gray-900 text-white border-gray-900 shadow'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400 hover:text-gray-900'
+            }`}
+          >
+            All
+          </button>
+          {categories.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedCategory(cat.name)}
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 border ${
+                selectedCategory === cat.name
+                  ? `${cat.color_bg} ${cat.color_text} border-transparent shadow`
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400 hover:text-gray-900'
+              }`}
+            >
+              {cat.name}
+            </button>
+          ))}
+        </div>
+
         {/* Card Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {cards.map((card) => (
+          {filteredCards.map((card) => (
             <BusinessCard key={card.id} card={card} />
           ))}
         </div>
+
+        {/* Empty state when filter returns nothing */}
+        {filteredCards.length === 0 && (
+          <div className="text-center py-20 text-gray-400">
+            <p className="text-4xl mb-3">🗂️</p>
+            <p className="font-medium">No cards in this category yet.</p>
+          </div>
+        )}
 
         {/* Footer */}
         <footer className="mt-12 text-center text-gray-400 text-xs">
