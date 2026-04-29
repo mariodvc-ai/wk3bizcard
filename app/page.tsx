@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { Session, AuthChangeEvent } from "@supabase/supabase-js";
 
 // =====================================================
 // INTERFACES
@@ -22,6 +23,7 @@ interface Card {
   email: string;
   website?: string;
   category_id: number;
+  avatar_url?: string;
   categories: Category;
 }
 
@@ -36,10 +38,11 @@ const EMPTY_FORM = {
 };
 
 // =====================================================
-// AVATAR HELPER (DiceBear Personas)
+// AVATAR HELPER — uses uploaded photo or DiceBear fallback
 // =====================================================
-function getAvatar(name: string): string {
-  const seed = encodeURIComponent(name.trim().toLowerCase());
+function getAvatar(card: Card): string {
+  if (card.avatar_url) return card.avatar_url;
+  const seed = encodeURIComponent(card.name.trim().toLowerCase());
   return `https://api.dicebear.com/7.x/personas/svg?seed=${seed}&backgroundColor=ffdfbf,ffd5dc,d1d4f9,c0aede,b6e3f4`;
 }
 
@@ -72,6 +75,8 @@ function BusinessCard({
   onEditChange,
   onSave,
   onCancelEdit,
+  onAvatarUpload,
+  uploadingAvatar,
 }: {
   card: Card;
   user: any;
@@ -81,16 +86,19 @@ function BusinessCard({
   onEditChange: (field: string, value: string) => void;
   onSave: () => void;
   onCancelEdit: () => void;
+  onAvatarUpload: (file: File) => void;
+  uploadingAvatar: boolean;
 }) {
   const category = card.categories;
+  const inputId = `avatar-upload-${card.id}`;
 
   return (
-    <div className="group bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col transition-all duration-300 ease-out hover:-translate-y-2 hover:shadow-xl">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex flex-col transition-all duration-300 ease-out hover:-translate-y-2 hover:shadow-xl">
       {/* Avatar + Name */}
       <div className="flex items-center gap-4 mb-5">
         <div className="w-16 h-16 rounded-full overflow-hidden ring-2 ring-gray-100 flex-shrink-0 bg-gray-50">
           <img
-            src={getAvatar(card.name)}
+            src={getAvatar(card)}
             alt={`Avatar for ${card.name}`}
             className="w-full h-full object-cover"
           />
@@ -106,6 +114,38 @@ function BusinessCard({
       {/* Edit Form or Details */}
       {isEditing ? (
         <div className="space-y-2 mb-4">
+          {/* Upload Photo — label triggers file input */}
+          <div className="flex items-center gap-3 p-2 bg-blue-50 rounded-lg border border-blue-200">
+            <label
+              htmlFor={inputId}
+              className={`cursor-pointer text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${
+                uploadingAvatar
+                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                  : "bg-blue-600 text-white hover:bg-blue-700"
+              }`}
+            >
+              {uploadingAvatar ? "Uploading..." : "📷 Upload Photo"}
+            </label>
+            <input
+              id={inputId}
+              type="file"
+              accept="image/*"
+              disabled={uploadingAvatar}
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onAvatarUpload(file);
+                e.target.value = "";
+              }}
+            />
+            <span className="text-xs text-blue-500">
+              {card.avatar_url
+                ? "✓ Custom photo set"
+                : "Max 40MB · JPG, PNG, GIF"}
+            </span>
+          </div>
+
+          {/* Text Fields */}
           {["name", "title", "company", "email", "phone", "website"].map(
             (field) => (
               <input
@@ -117,6 +157,8 @@ function BusinessCard({
               />
             ),
           )}
+
+          {/* Save / Cancel */}
           <div className="flex gap-2 pt-2">
             <button
               onClick={onSave}
@@ -192,19 +234,32 @@ export default function Home() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [addFormData, setAddFormData] = useState<any>(EMPTY_FORM);
   const [adding, setAdding] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  // Get logged-in user
+  // =====================================================
+  // AUTH STATE LISTENER
+  // =====================================================
   useEffect(() => {
-    const getUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      setUser(user);
-    };
-    getUser();
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }: { data: { session: Session | null } }) => {
+        setUser(session?.user ?? null);
+      });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        setUser(session?.user ?? null);
+      },
+    );
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Fetch cards from Supabase
+  // =====================================================
+  // FETCH CARDS
+  // =====================================================
   const fetchCards = useCallback(async () => {
     const { data, error } = await supabase.from("cards").select(`
       *,
@@ -215,7 +270,6 @@ export default function Home() {
         color_text
       )
     `);
-
     if (error) {
       setError("Failed to load cards. Please try again.");
       console.error("Supabase fetch error:", error);
@@ -228,7 +282,6 @@ export default function Home() {
     setLoading(false);
   }, []);
 
-  // Initial fetch
   useEffect(() => {
     fetchCards();
   }, [fetchCards]);
@@ -251,7 +304,7 @@ export default function Home() {
   }, [fetchCards]);
 
   // =====================================================
-  // AUTH
+  // AUTH ACTIONS
   // =====================================================
   const handleLogin = async () => {
     await supabase.auth.signInWithOAuth({
@@ -262,7 +315,107 @@ export default function Home() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setUser(null);
+  };
+
+  // =====================================================
+  // IMAGE RESIZE HELPER — 40MB check + resize to 200x200 JPEG
+  // =====================================================
+  const resizeImage = (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const MAX_BYTES = 40 * 1024 * 1024;
+      if (file.size > MAX_BYTES) {
+        reject(new Error("File is too large. Maximum size is 40MB."));
+        return;
+      }
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const SIZE = 200;
+        const canvas = document.createElement("canvas");
+        canvas.width = SIZE;
+        canvas.height = SIZE;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Canvas not supported."));
+          return;
+        }
+        const srcSize = Math.min(img.width, img.height);
+        const srcX = (img.width - srcSize) / 2;
+        const srcY = (img.height - srcSize) / 2;
+        ctx.drawImage(img, srcX, srcY, srcSize, srcSize, 0, 0, SIZE, SIZE);
+        canvas.toBlob(
+          (blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error("Failed to process image."));
+          },
+          "image/jpeg",
+          0.8,
+        );
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error("Failed to load image. Please try a different file."));
+      };
+      img.src = objectUrl;
+    });
+  };
+
+  // =====================================================
+  // AVATAR UPLOAD
+  // =====================================================
+  const handleAvatarUpload = async (
+    cardId: number,
+    file: File,
+  ): Promise<void> => {
+    setUploadingAvatar(true);
+    try {
+      let blob: Blob;
+      try {
+        blob = await resizeImage(file);
+      } catch (resizeErr: any) {
+        alert(resizeErr.message);
+        return;
+      }
+
+      const filePath = `card-${cardId}-${Date.now()}.jpg`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("BizCard_Image")
+        .upload(filePath, blob, { upsert: true, contentType: "image/jpeg" });
+
+      if (uploadError) {
+        alert(`Upload failed: ${uploadError.message}`);
+        return;
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("BizCard_Image")
+        .getPublicUrl(filePath);
+
+      const publicUrl = urlData.publicUrl;
+
+      const { error: updateError } = await supabase
+        .from("cards")
+        .update({ avatar_url: publicUrl })
+        .eq("id", cardId);
+
+      if (updateError) {
+        alert(`Failed to save photo: ${updateError.message}`);
+        return;
+      }
+
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === cardId ? { ...c, avatar_url: publicUrl } : c,
+        ),
+      );
+    } catch (err) {
+      alert("Something went wrong during upload.");
+      console.error(err);
+    } finally {
+      setUploadingAvatar(false);
+    }
   };
 
   // =====================================================
@@ -331,7 +484,7 @@ export default function Home() {
   ).sort((a, b) => a.name.localeCompare(b.name));
 
   // =====================================================
-  // FILTERED CARDS — search + category work together
+  // FILTERED CARDS
   // =====================================================
   const filteredCards = cards.filter((card) => {
     const matchesCategory =
@@ -613,6 +766,8 @@ export default function Home() {
               }
               onSave={() => handleSave(card.id)}
               onCancelEdit={() => setEditingId(null)}
+              onAvatarUpload={(file) => handleAvatarUpload(card.id, file)}
+              uploadingAvatar={uploadingAvatar}
             />
           ))}
         </div>
