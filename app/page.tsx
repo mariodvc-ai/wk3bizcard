@@ -163,11 +163,11 @@ function BusinessCard({
       {/* Category Badge */}
       <div className="pt-4 border-t border-gray-50">
         <span
-          className={`inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-            category
-              ? `${category.color_bg} ${category.color_text}`
-              : "bg-gray-100 text-gray-600"
-          }`}
+          className="inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest"
+          style={{
+            backgroundColor: category ? category.color_bg : "#F3F4F6",
+            color: category ? category.color_text : "#1F2937",
+          }}
         >
           {category?.name ?? "Uncategorized"}
         </span>
@@ -574,11 +574,21 @@ export default function Home() {
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.name)}
-              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 border ${
+              className="px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-200 border"
+              style={
                 selectedCategory === cat.name
-                  ? `${cat.color_bg} ${cat.color_text} border-transparent shadow`
-                  : "bg-white text-gray-600 border-gray-200 hover:border-gray-400 hover:text-gray-900"
-              }`}
+                  ? {
+                      backgroundColor: cat.color_bg,
+                      color: cat.color_text,
+                      borderColor: "transparent",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+                    }
+                  : {
+                      backgroundColor: "#ffffff",
+                      color: "#4B5563",
+                      borderColor: "#E5E7EB",
+                    }
+              }
             >
               {cat.name}
             </button>
