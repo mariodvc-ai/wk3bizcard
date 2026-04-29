@@ -76,6 +76,7 @@ function BusinessCard({
   onSave,
   onCancelEdit,
   onAvatarUpload,
+  onRemoveAvatar,
   uploadingAvatar,
 }: {
   card: Card;
@@ -87,6 +88,7 @@ function BusinessCard({
   onSave: () => void;
   onCancelEdit: () => void;
   onAvatarUpload: (file: File) => void;
+  onRemoveAvatar: () => void;
   uploadingAvatar: boolean;
 }) {
   const category = card.categories;
@@ -143,6 +145,14 @@ function BusinessCard({
                 ? "✓ Custom photo set"
                 : "Max 40MB · JPG, PNG, GIF"}
             </span>
+            {card.avatar_url && (
+              <button
+                onClick={onRemoveAvatar}
+                className="ml-auto text-xs text-red-500 hover:text-red-700 font-semibold transition-colors"
+              >
+                ✕ Remove
+              </button>
+            )}
           </div>
 
           {/* Text Fields */}
@@ -235,6 +245,10 @@ export default function Home() {
   const [addFormData, setAddFormData] = useState<any>(EMPTY_FORM);
   const [adding, setAdding] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [pendingAvatarPreview, setPendingAvatarPreview] = useState<
+    string | null
+  >(null);
 
   // =====================================================
   // AUTH STATE LISTENER
@@ -364,10 +378,7 @@ export default function Home() {
   // =====================================================
   // AVATAR UPLOAD
   // =====================================================
-  const handleAvatarUpload = async (
-    cardId: number,
-    file: File,
-  ): Promise<void> => {
+  const handleAvatarUpload = async (cardId: number, file: File) => {
     setUploadingAvatar(true);
     try {
       let blob: Blob;
@@ -419,6 +430,23 @@ export default function Home() {
   };
 
   // =====================================================
+  // REMOVE AVATAR
+  // =====================================================
+  const handleRemoveAvatar = async (cardId: number): Promise<void> => {
+    const { error } = await supabase
+      .from("cards")
+      .update({ avatar_url: null })
+      .eq("id", cardId);
+    if (error) {
+      alert(`Failed to remove photo: ${error.message}`);
+      return;
+    }
+    setCards((prev) =>
+      prev.map((c) => (c.id === cardId ? { ...c, avatar_url: undefined } : c)),
+    );
+  };
+
+  // =====================================================
   // ADD CARD
   // =====================================================
   const handleAdd = async () => {
@@ -444,7 +472,15 @@ export default function Home() {
     if (error) {
       alert(`Add failed: ${error.message}`);
     } else {
-      setCards((prev) => [...prev, data as Card].sort(sortByName));
+      let newCard = data as Card;
+      // If a photo was selected, upload it now that we have the card id
+      if (pendingAvatarFile) {
+        await handleAvatarUpload(newCard.id, pendingAvatarFile);
+        setPendingAvatarFile(null);
+        setPendingAvatarPreview(null);
+      } else {
+        setCards((prev) => [...prev, newCard].sort(sortByName));
+      }
       setAddFormData(EMPTY_FORM);
       setShowAddForm(false);
     }
@@ -591,6 +627,8 @@ export default function Home() {
               onClick={() => {
                 setShowAddForm(!showAddForm);
                 setAddFormData(EMPTY_FORM);
+                setPendingAvatarFile(null);
+                setPendingAvatarPreview(null);
               }}
               className="mt-4 inline-flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-full font-semibold shadow-sm hover:bg-blue-700 transition-all"
             >
@@ -682,6 +720,57 @@ export default function Home() {
                 />
               </div>
             </div>
+            {/* Avatar Upload for New Card */}
+            <div className="mt-4 flex items-center gap-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              {pendingAvatarPreview ? (
+                <img
+                  src={pendingAvatarPreview}
+                  alt="Preview"
+                  className="w-12 h-12 rounded-full object-cover ring-2 ring-blue-300"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-400 text-xl">
+                  📷
+                </div>
+              )}
+              <div className="flex flex-col gap-1">
+                <label
+                  htmlFor="new-card-avatar"
+                  className="cursor-pointer text-xs font-semibold px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition-colors inline-block"
+                >
+                  {pendingAvatarFile
+                    ? "Change Photo"
+                    : "Upload Photo (optional)"}
+                </label>
+                <input
+                  id="new-card-avatar"
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setPendingAvatarFile(file);
+                      setPendingAvatarPreview(URL.createObjectURL(file));
+                    }
+                    e.target.value = "";
+                  }}
+                />
+                {pendingAvatarFile && (
+                  <button
+                    onClick={() => {
+                      setPendingAvatarFile(null);
+                      setPendingAvatarPreview(null);
+                    }}
+                    className="text-xs text-red-500 hover:text-red-700 font-semibold text-left"
+                  >
+                    ✕ Remove
+                  </button>
+                )}
+              </div>
+              <span className="text-xs text-blue-400 ml-auto">Max 40MB</span>
+            </div>
+
             <div className="mt-6 flex justify-end gap-3">
               <button
                 onClick={() => setShowAddForm(false)}
@@ -767,6 +856,7 @@ export default function Home() {
               onSave={() => handleSave(card.id)}
               onCancelEdit={() => setEditingId(null)}
               onAvatarUpload={(file) => handleAvatarUpload(card.id, file)}
+              onRemoveAvatar={() => handleRemoveAvatar(card.id)}
               uploadingAvatar={uploadingAvatar}
             />
           ))}
