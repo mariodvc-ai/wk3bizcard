@@ -24,6 +24,7 @@ interface Card {
   website?: string;
   category_id: number;
   avatar_url?: string;
+  status: string;
   categories: Category;
 }
 
@@ -64,6 +65,67 @@ function sortByName(a: Card, b: Card): number {
 }
 
 // =====================================================
+// TOAST COMPONENT
+// =====================================================
+function Toast({
+  message,
+  type,
+}: {
+  message: string;
+  type: "success" | "error";
+}) {
+  return (
+    <div
+      className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-sm font-semibold transition-all ${
+        type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
+      }`}
+    >
+      {message}
+    </div>
+  );
+}
+
+// =====================================================
+// DELETE CONFIRM MODAL
+// =====================================================
+function DeleteModal({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+      <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full mx-4 text-center">
+        <p className="text-3xl mb-3">🗑️</p>
+        <h2 className="text-lg font-extrabold text-gray-900 mb-2">
+          Delete Card?
+        </h2>
+        <p className="text-sm text-gray-500 mb-6">
+          This will permanently remove the card from the directory. This cannot
+          be undone.
+        </p>
+        <div className="flex gap-3 justify-center">
+          <button
+            onClick={onCancel}
+            className="px-6 py-2 rounded-full text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-6 py-2 rounded-full text-sm font-semibold text-white bg-red-600 hover:bg-red-700 transition-all"
+          >
+            Yes, Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================
 // BUSINESS CARD COMPONENT
 // =====================================================
 function BusinessCard({
@@ -77,6 +139,7 @@ function BusinessCard({
   onCancelEdit,
   onAvatarUpload,
   onRemoveAvatar,
+  onDeleteClick,
   uploadingAvatar,
 }: {
   card: Card;
@@ -89,6 +152,7 @@ function BusinessCard({
   onCancelEdit: () => void;
   onAvatarUpload: (file: File) => void;
   onRemoveAvatar: () => void;
+  onDeleteClick: () => void;
   uploadingAvatar: boolean;
 }) {
   const category = card.categories;
@@ -116,7 +180,7 @@ function BusinessCard({
       {/* Edit Form or Details */}
       {isEditing ? (
         <div className="space-y-2 mb-4">
-          {/* Upload Photo — label triggers file input */}
+          {/* Upload Photo */}
           <div className="flex items-center gap-3 p-2 bg-blue-50 rounded-lg border border-blue-200">
             <label
               htmlFor={inputId}
@@ -168,7 +232,7 @@ function BusinessCard({
             ),
           )}
 
-          {/* Save / Cancel */}
+          {/* Save / Cancel / Delete */}
           <div className="flex gap-2 pt-2">
             <button
               onClick={onSave}
@@ -181,6 +245,12 @@ function BusinessCard({
               className="bg-slate-100 text-slate-600 px-3 py-1 rounded text-xs font-bold uppercase hover:bg-slate-200 transition-colors"
             >
               Cancel
+            </button>
+            <button
+              onClick={onDeleteClick}
+              className="ml-auto bg-red-50 text-red-500 px-3 py-1 rounded text-xs font-bold uppercase hover:bg-red-500 hover:text-white transition-colors"
+            >
+              🗑 Delete
             </button>
           </div>
         </div>
@@ -249,6 +319,22 @@ export default function Home() {
   const [pendingAvatarPreview, setPendingAvatarPreview] = useState<
     string | null
   >(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error";
+  } | null>(null);
+  const [deleteCardId, setDeleteCardId] = useState<number | null>(null);
+
+  // =====================================================
+  // TOAST HELPER
+  // =====================================================
+  const showToast = (
+    message: string,
+    type: "success" | "error" = "success",
+  ) => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  };
 
   // =====================================================
   // AUTH STATE LISTENER
@@ -272,18 +358,24 @@ export default function Home() {
   }, []);
 
   // =====================================================
-  // FETCH CARDS
+  // FETCH CARDS — only approved cards on homepage
   // =====================================================
   const fetchCards = useCallback(async () => {
-    const { data, error } = await supabase.from("cards").select(`
-      *,
-      categories (
-        id,
-        name,
-        color_bg,
-        color_text
+    const { data, error } = await supabase
+      .from("cards")
+      .select(
+        `
+        *,
+        categories (
+          id,
+          name,
+          color_bg,
+          color_text
+        )
+      `,
       )
-    `);
+      .eq("status", "approved");
+
     if (error) {
       setError("Failed to load cards. Please try again.");
       console.error("Supabase fetch error:", error);
@@ -378,14 +470,17 @@ export default function Home() {
   // =====================================================
   // AVATAR UPLOAD
   // =====================================================
-  const handleAvatarUpload = async (cardId: number, file: File) => {
+  const handleAvatarUpload = async (
+    cardId: number,
+    file: File,
+  ): Promise<void> => {
     setUploadingAvatar(true);
     try {
       let blob: Blob;
       try {
         blob = await resizeImage(file);
       } catch (resizeErr: any) {
-        alert(resizeErr.message);
+        showToast(resizeErr.message, "error");
         return;
       }
 
@@ -396,7 +491,7 @@ export default function Home() {
         .upload(filePath, blob, { upsert: true, contentType: "image/jpeg" });
 
       if (uploadError) {
-        alert(`Upload failed: ${uploadError.message}`);
+        showToast(`Upload failed: ${uploadError.message}`, "error");
         return;
       }
 
@@ -412,7 +507,7 @@ export default function Home() {
         .eq("id", cardId);
 
       if (updateError) {
-        alert(`Failed to save photo: ${updateError.message}`);
+        showToast(`Failed to save photo: ${updateError.message}`, "error");
         return;
       }
 
@@ -421,8 +516,9 @@ export default function Home() {
           c.id === cardId ? { ...c, avatar_url: publicUrl } : c,
         ),
       );
+      showToast("Photo uploaded successfully! ✅");
     } catch (err) {
-      alert("Something went wrong during upload.");
+      showToast("Something went wrong during upload.", "error");
       console.error(err);
     } finally {
       setUploadingAvatar(false);
@@ -438,12 +534,32 @@ export default function Home() {
       .update({ avatar_url: null })
       .eq("id", cardId);
     if (error) {
-      alert(`Failed to remove photo: ${error.message}`);
+      showToast(`Failed to remove photo: ${error.message}`, "error");
       return;
     }
     setCards((prev) =>
       prev.map((c) => (c.id === cardId ? { ...c, avatar_url: undefined } : c)),
     );
+    showToast("Photo removed.");
+  };
+
+  // =====================================================
+  // DELETE CARD
+  // =====================================================
+  const handleDeleteConfirm = async (): Promise<void> => {
+    if (!deleteCardId) return;
+    const { error } = await supabase
+      .from("cards")
+      .delete()
+      .eq("id", deleteCardId);
+    if (error) {
+      showToast(`Failed to delete card: ${error.message}`, "error");
+    } else {
+      setCards((prev) => prev.filter((c) => c.id !== deleteCardId));
+      showToast("Card deleted.");
+    }
+    setDeleteCardId(null);
+    setEditingId(null);
   };
 
   // =====================================================
@@ -452,7 +568,10 @@ export default function Home() {
   const handleAdd = async () => {
     const { name, title, company, email, phone, website, category_id } =
       addFormData;
-    if (!name.trim()) return alert("Name is required.");
+    if (!name.trim()) {
+      showToast("Name is required.", "error");
+      return;
+    }
     setAdding(true);
     const { data, error } = await supabase
       .from("cards")
@@ -465,15 +584,15 @@ export default function Home() {
           phone,
           website,
           category_id: category_id || null,
+          status: "approved",
         },
       ])
       .select(`*, categories (id, name, color_bg, color_text)`)
       .single();
     if (error) {
-      alert(`Add failed: ${error.message}`);
+      showToast(`Add failed: ${error.message}`, "error");
     } else {
       let newCard = data as Card;
-      // If a photo was selected, upload it now that we have the card id
       if (pendingAvatarFile) {
         await handleAvatarUpload(newCard.id, pendingAvatarFile);
         setPendingAvatarFile(null);
@@ -483,6 +602,7 @@ export default function Home() {
       }
       setAddFormData(EMPTY_FORM);
       setShowAddForm(false);
+      showToast("Card added successfully! ✅");
     }
     setAdding(false);
   };
@@ -497,7 +617,7 @@ export default function Home() {
       .update({ name, title, company, email, phone, website })
       .eq("id", id);
     if (error) {
-      alert(`Update failed: ${error.message}`);
+      showToast(`Update failed: ${error.message}`, "error");
     } else {
       setCards((prev) =>
         prev
@@ -505,6 +625,7 @@ export default function Home() {
           .sort(sortByName),
       );
       setEditingId(null);
+      showToast("Card updated! ✅");
     }
   };
 
@@ -569,9 +690,38 @@ export default function Home() {
   // ---- MAIN RENDER ----
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Toast */}
+      {toast && <Toast message={toast.message} type={toast.type} />}
+
+      {/* Delete Confirm Modal */}
+      {deleteCardId && (
+        <DeleteModal
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteCardId(null)}
+        />
+      )}
+
       <div className="max-w-6xl mx-auto px-6 py-10">
         {/* Auth Nav */}
-        <nav className="flex justify-end mb-8">
+        <nav className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-3">
+            {/* Submit Your Card button — always visible */}
+            <a
+              href="/submit"
+              className="inline-flex items-center gap-2 bg-green-600 text-white px-5 py-2 rounded-full text-sm font-semibold shadow-sm hover:bg-green-700 transition-all"
+            >
+              + Submit Your Card
+            </a>
+            {/* Admin link — only visible when logged in */}
+            {user && (
+              <a
+                href="/admin/submissions"
+                className="inline-flex items-center gap-2 bg-amber-500 text-white px-5 py-2 rounded-full text-sm font-semibold shadow-sm hover:bg-amber-600 transition-all"
+              >
+                🛡 Admin
+              </a>
+            )}
+          </div>
           {user ? (
             <div className="flex items-center gap-4 bg-white p-2 px-4 rounded-full shadow-sm border border-slate-200">
               <span className="text-sm font-medium text-slate-700">
@@ -720,6 +870,7 @@ export default function Home() {
                 />
               </div>
             </div>
+
             {/* Avatar Upload for New Card */}
             <div className="mt-4 flex items-center gap-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
               {pendingAvatarPreview ? (
@@ -857,6 +1008,7 @@ export default function Home() {
               onCancelEdit={() => setEditingId(null)}
               onAvatarUpload={(file) => handleAvatarUpload(card.id, file)}
               onRemoveAvatar={() => handleRemoveAvatar(card.id)}
+              onDeleteClick={() => setDeleteCardId(card.id)}
               uploadingAvatar={uploadingAvatar}
             />
           ))}
