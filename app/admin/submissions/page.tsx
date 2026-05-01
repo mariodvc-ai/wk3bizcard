@@ -38,6 +38,49 @@ function getAvatar(card: Card): string {
 }
 
 // =====================================================
+// DELETE CONFIRM MODAL
+// =====================================================
+function DeleteModal({
+  cardName,
+  onConfirm,
+  onCancel,
+}: {
+  cardName: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
+      <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full mx-4 text-center">
+        <p className="text-3xl mb-3">🗑️</p>
+        <h2 className="text-lg font-extrabold text-gray-900 mb-2">
+          Delete Card?
+        </h2>
+        <p className="text-sm text-gray-500 mb-6">
+          This will permanently remove the card for{" "}
+          <span className="font-semibold text-gray-800">{cardName}</span> from
+          the directory. This cannot be undone.
+        </p>
+        <div className="flex gap-3 justify-center">
+          <button
+            onClick={onCancel}
+            className="px-6 py-2 rounded-full text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-6 py-2 rounded-full text-sm font-semibold text-white bg-red-600 hover:bg-red-700 transition-all"
+          >
+            Yes, Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================
 // ADMIN SUBMISSIONS PAGE
 // =====================================================
 export default function AdminSubmissionsPage() {
@@ -51,6 +94,10 @@ export default function AdminSubmissionsPage() {
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error";
+  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: number;
+    name: string;
   } | null>(null);
 
   // =====================================================
@@ -154,20 +201,23 @@ export default function AdminSubmissionsPage() {
   };
 
   // =====================================================
-  // DELETE CARD
+  // DELETE CARD — triggered after modal confirmation
   // =====================================================
-  const handleDelete = async (id: number) => {
-    if (!confirm("Are you sure you want to permanently delete this card?"))
-      return;
-    setProcessing(id);
-    const { error } = await supabase.from("cards").delete().eq("id", id);
+  const handleDeleteConfirm = async (): Promise<void> => {
+    if (!deleteTarget) return;
+    setProcessing(deleteTarget.id);
+    const { error } = await supabase
+      .from("cards")
+      .delete()
+      .eq("id", deleteTarget.id);
     if (error) {
       showToast("Failed to delete card.", "error");
     } else {
-      showToast("Card permanently deleted.");
-      setSubmissions((prev) => prev.filter((c) => c.id !== id));
+      showToast(`Card for ${deleteTarget.name} permanently deleted.`);
+      setSubmissions((prev) => prev.filter((c) => c.id !== deleteTarget.id));
     }
     setProcessing(null);
+    setDeleteTarget(null);
   };
 
   // =====================================================
@@ -238,6 +288,15 @@ export default function AdminSubmissionsPage() {
         >
           {toast.message}
         </div>
+      )}
+
+      {/* Delete Confirm Modal */}
+      {deleteTarget && (
+        <DeleteModal
+          cardName={deleteTarget.name}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
 
       <div className="max-w-5xl mx-auto px-6 py-10">
@@ -388,7 +447,9 @@ export default function AdminSubmissionsPage() {
                     </button>
                   )}
                   <button
-                    onClick={() => handleDelete(card.id)}
+                    onClick={() =>
+                      setDeleteTarget({ id: card.id, name: card.name })
+                    }
                     disabled={processing === card.id}
                     className="px-4 py-1.5 rounded-full text-xs font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors disabled:opacity-50"
                   >
