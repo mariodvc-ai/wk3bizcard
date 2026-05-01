@@ -89,9 +89,11 @@ function Toast({
 // DELETE CONFIRM MODAL
 // =====================================================
 function DeleteModal({
+  cardName,
   onConfirm,
   onCancel,
 }: {
+  cardName: string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -103,8 +105,9 @@ function DeleteModal({
           Delete Card?
         </h2>
         <p className="text-sm text-gray-500 mb-6">
-          This will permanently remove the card from the directory. This cannot
-          be undone.
+          This will permanently remove the card for{" "}
+          <span className="font-semibold text-gray-800">{cardName}</span> from
+          the directory. This cannot be undone.
         </p>
         <div className="flex gap-3 justify-center">
           <button
@@ -323,7 +326,11 @@ export default function Home() {
     message: string;
     type: "success" | "error";
   } | null>(null);
-  const [deleteCardId, setDeleteCardId] = useState<number | null>(null);
+  // Stores both id and name of card pending deletion
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
 
   // =====================================================
   // TOAST HELPER
@@ -547,18 +554,18 @@ export default function Home() {
   // DELETE CARD
   // =====================================================
   const handleDeleteConfirm = async (): Promise<void> => {
-    if (!deleteCardId) return;
+    if (!deleteTarget) return;
     const { error } = await supabase
       .from("cards")
       .delete()
-      .eq("id", deleteCardId);
+      .eq("id", deleteTarget.id);
     if (error) {
       showToast(`Failed to delete card: ${error.message}`, "error");
     } else {
-      setCards((prev) => prev.filter((c) => c.id !== deleteCardId));
-      showToast("Card deleted.");
+      setCards((prev) => prev.filter((c) => c.id !== deleteTarget.id));
+      showToast(`Card for ${deleteTarget.name} deleted.`);
     }
-    setDeleteCardId(null);
+    setDeleteTarget(null);
     setEditingId(null);
   };
 
@@ -694,10 +701,11 @@ export default function Home() {
       {toast && <Toast message={toast.message} type={toast.type} />}
 
       {/* Delete Confirm Modal */}
-      {deleteCardId && (
+      {deleteTarget && (
         <DeleteModal
+          cardName={deleteTarget.name}
           onConfirm={handleDeleteConfirm}
-          onCancel={() => setDeleteCardId(null)}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
 
@@ -1008,7 +1016,9 @@ export default function Home() {
               onCancelEdit={() => setEditingId(null)}
               onAvatarUpload={(file) => handleAvatarUpload(card.id, file)}
               onRemoveAvatar={() => handleRemoveAvatar(card.id)}
-              onDeleteClick={() => setDeleteCardId(card.id)}
+              onDeleteClick={() =>
+                setDeleteTarget({ id: card.id, name: card.name })
+              }
               uploadingAvatar={uploadingAvatar}
             />
           ))}
